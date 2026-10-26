@@ -12,6 +12,8 @@ from chat.prompt import chat_system_prompt, chat_memory, chat_user_data, chat_us
 from memory.memory_retriever import get_history_messages, get_recent_summary, get_current_summary
 from memory.memory_manager import save_message, save_summary
 from tools.mcp_servers import all_mcp_tools
+from chat.tool_approvals import (validate_tool_args, approval_manager, is_destructive_tool,
+                                 APPROVAL_TIMEOUT_SECONDS)
 
 
 # 本地 Langchain Tool 注册
@@ -95,7 +97,8 @@ async def _summarize_turn(
         api_key=API_KEY,
         base_url=BASE_URL,
         temperature=0,
-        max_tokens=800,
+        max_tokens=1000,
+        extra_body={"enable_thinking": False},
     )
     # 要求模型返回 SummaryResult 结构
     structured_llm = summary_llm.with_structured_output(SummaryResult)
@@ -122,6 +125,38 @@ async def _summarize_turn(
     return new_summary
 
 
+async def _invoke_tool(tool, tool_args: dict) -> any:
+    """
+    调用工具，获取工具返回值。
+    Args:
+        tool: 要调用的工具
+        tool_args: 工具调用参数
+    Returns:
+        工具调用结果
+    """
+    try:
+        raw_result = await tool.ainvoke(tool_args)
+        # MCP 工具：langchain-mcp-adapters 返回(content, artifact)
+        if isinstance(raw_result, tuple) and len(raw_result) == 2:
+            content, artifact = raw_result
+            # 优先取结构化结果
+            if artifact and "structured_content" in artifact:
+                tool_result = artifact["structured_content"]
+            # 如果没有结构化结果，就使用普通内容
+            else:
+                tool_result = content
+        # LangChain 工具就直接使用返回值
+        else:
+            tool_result = raw_result
+        return tool_result
+    except Exception as e:
+        return {
+            "success": False,
+            "error_type": type(e).__name__,
+            "error": str(e),
+        }
+
+
 async def agent_loop(
         session_id: str,  # 会话 ID
         query: str,  # 用户问题
@@ -144,13 +179,14 @@ async def agent_loop(
         base_url=BASE_URL,
         temperature=temperature,
         max_tokens=max_tokens,
+        extra_body={"enable_thinking": False},
     )
 
     # 获取记忆 ==========================================================================================================
     # 历史消息列表（返回历史消息列表和最后一条消息在会话中的顺序）
     history_messages, last_seq = get_history_messages(session_id, db)
     # 滑动历史消息窗口
-    # history_messages = history_messages[-history_len:]
+    history_messages = history_messages[-history_len:]
 
     # 近期会话摘要
     conversation_summaries = get_recent_summary(session_id, db)
@@ -240,32 +276,55 @@ async def agent_loop(
                     tool_call_id = tool_call["id"]
                     tool_name = tool_call["name"]
                     tool_args = tool_call["args"]
-                    tool = tool_map[tool_name]
+                    tool = tool_map.get(tool_name)
                     yield {
                         "type": "tool_start",
                         "content": f"正在调用工具 {tool_name} ...\n",
                     }
-                    # 调用工具，获取工具返回值
-                    try:
-                        raw_result = await tool.ainvoke(tool_args)
-                        # MCP 工具：langchain-mcp-adapters 返回(content, artifact)
-                        if isinstance(raw_result, tuple) and len(raw_result) == 2:
-                            content, artifact = raw_result
-                            # 优先取结构化结果
-                            if artifact and "structured_content" in artifact:
-                                tool_result = artifact["structured_content"]
-                            # 如果没有结构化结果，就使用普通内容
-                            else:
-                                tool_result = content
-                        # LangChain 工具就直接使用返回值
-                        else:
-                            tool_result = raw_result
-                    except Exception as e:
+                    # 检查工具参数
+                    validation_error = validate_tool_args(tool_name=tool_name, tool=tool, args=tool_args)
+                    if validation_error:
+                        # 参数校验失败
                         tool_result = {
                             "success": False,
-                            "error_type": type(e).__name__,
-                            "error": str(e),
+                            "error_type": "InvalidToolArgs",
+                            "error": validation_error,
                         }
+                    # 破坏性操作请求人工审批
+                    elif is_destructive_tool(tool_name):
+                        approval = await approval_manager.create(
+                            session_id=session_id,
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name,
+                            tool_args=tool_args,
+                        )
+                        # 把事件发给前端
+                        yield {
+                            "type": "require_approval",
+                            "approval_id": approval.approval_id,
+                            "session_id": session_id,
+                            "tool_call_id": tool_call_id,
+                            "tool_name": tool_name,
+                            "args": tool_args,
+                            "expires_in": APPROVAL_TIMEOUT_SECONDS,
+                            "content": f"工具 {tool_name} 请求删除操作，请确认后再继续。",
+                        }
+                        # 挂起，等待审批结果
+                        approved, reason = await approval_manager.wait(approval)
+                        # 审批通过
+                        if approved:
+                            # 调用工具，获取工具返回值
+                            tool_result = await _invoke_tool(tool, tool_args)
+                        # 审批被拒绝
+                        else:
+                            tool_result = {
+                                "success": False,
+                                "error_type": "HumanApprovalDenied",
+                                "error": reason or "用户未批准该操作。",
+                            }
+                    # 普通工具调用
+                    else:
+                        tool_result = await _invoke_tool(tool, tool_args)
                     tool_message = ToolMessage(
                         content=json.dumps(tool_result, ensure_ascii=False, default=str),
                         tool_call_id=tool_call_id,
@@ -281,6 +340,9 @@ async def agent_loop(
             else:
                 # 无工具调用，结束 Agent Loop
                 break
+        else:
+            # 循环全部用完
+            yield {"type": "error", "content": "Agent 尝试次数达上限，已强制终止。"}
 
     # 提取事实 ==========================================================================================================
 

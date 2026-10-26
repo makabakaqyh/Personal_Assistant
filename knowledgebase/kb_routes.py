@@ -206,7 +206,6 @@ async def upload_docs(
         # 写入文件
         with open(file_path, "wb") as f:
             f.write(file_content)
-
         # 获取对应的文档加载器
         loader = get_loader(file_path)
         # 将文档加载为一个文档对象列表

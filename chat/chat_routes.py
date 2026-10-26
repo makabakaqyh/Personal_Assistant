@@ -1,11 +1,13 @@
 import json
-from fastapi import APIRouter, Body, Form, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import AsyncIterable
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 
 from chat.agent_loop import agent_loop
 from database.database import get_db
+from chat.tool_approvals import approval_manager
 
 
 # 创建路由组
@@ -74,3 +76,34 @@ async def agent_chat(
         ),
         media_type="application/json"  # 响应内容为 JSON
     )
+
+
+@chat_router.post("/tool_approvals/{approval_id}")
+async def resolve_tool_approval(
+    approval_id: str,  # 审批请求 ID
+    session_id: str = Body(..., min_length=1),  # 会话 ID
+    approved: bool = Body(...),  # 审批结果
+    reason: str | None = Body(None),  # 拒绝原因
+):
+    """
+    接收并处理前端的用户审批结果
+    """
+    try:
+        # 唤醒挂起的协程
+        await approval_manager.resolve(
+            approval_id=approval_id,
+            session_id=session_id,
+            approved=approved,
+            reason=reason,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    return {
+        "success": True,
+        "approval_id": approval_id,
+    }

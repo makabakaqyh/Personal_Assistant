@@ -27,8 +27,8 @@ for _dir in (UPLOADED_FILE_DIR, KB_DIR, DB_DIR, KB_FILE_DIR):
 # 模型配置
 # ======================================================================================================================
 API_KEY = os.getenv("DASHSCOPE_API_KEY")
-BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-CHAT_MODEL_NAME = "qwen-plus"
+BASE_URL = "https://ws-z8uzsl29qmn1x0bp.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+CHAT_MODEL_NAME = "qwen3.8-flash"
 #  本地 Embedding 模型路径
 EMBEDDING_MODEL_PATH = os.path.join(PROJECT_ROOT, "model", "embedding_model")
 

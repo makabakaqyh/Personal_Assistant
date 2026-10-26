@@ -1,7 +1,7 @@
 import uuid
 import gradio as gr
 
-from api_client.chat_with_agent_api import chat_with_agent
+from api_client.chat_with_agent_api import chat_with_agent, handle_approval_option
 from api_client.knowledgebase_api import list_kbs, create_kb, delete_kb, upload_docs, update
 
 
@@ -17,7 +17,7 @@ def generate_session_id():
 # 创建界面容器，页面尽量占满浏览器宽度和高度
 with gr.Blocks(fill_width=True, fill_height=True) as demo:
     # 生成会话ID
-    session_state = gr.State(value=generate_session_id())
+    session_id = gr.State(value=generate_session_id())
 
     # 在 Gradio 界面中创建一个标签页
     # 对话页
@@ -28,26 +28,35 @@ with gr.Blocks(fill_width=True, fill_height=True) as demo:
         with gr.Row():
             # 创建垂直布局容器
             with gr.Column(scale=1, variant="panel") as sidebar_left:
-                history_len = gr.Slider(minimum=0, maximum=20, value=10, label="保留最近历史消息的数量")
+                history_len = gr.Slider(minimum=0, maximum=100, value=50, label="保留最近历史消息的数量")
                 temperature = gr.Slider(minimum=0.0, maximum=1.0, value=0.5, step=0.1, label="temperature")
-                max_tokens = gr.Slider(minimum=512, maximum=4096, value=1024, step=512, label="最大输出长度（Token）")
+                max_tokens = gr.Slider(minimum=1000, maximum=50000, value=10000, step=1000, label="最大输出长度（Token）")
                 stream = gr.Checkbox(label="stream", value=True)
             # 创建垂直布局容器
             with gr.Column(scale=10) as main:
                 # 创建聊天记录显示组件
                 chatbot = gr.Chatbot(height=490)
-                # 创建聊天界面，用户每次发送消息时自动调用 fn，并将返回结果自动追加到 history 中，并显示在界面上。
-                gr.ChatInterface(
-                    fn=chat_with_agent,  # 处理聊天的函数
-                    multimodal=True,  # 开启多模态输入，一次最多上传一个文件
-                    chatbot=chatbot,  # 聊天记录显示组件
-                    additional_inputs=[
-                        history_len,
-                        temperature,
-                        max_tokens,
-                        stream,
-                        session_state,  # 使用 session_state 组件来传递会话ID
-                    ],  # 额外传递给 fn 的参数
+                # 创建输入组件
+                chat_input = gr.MultimodalTextbox(
+                    sources=["upload"],  # 允许上传文件
+                    file_count="multiple",  # 一次可选多个文件
+                    file_types=[".txt", ".md", ".json", ".py", ".docx"],  # 允许上传的文件扩展名
+                    placeholder="今天聊点什么？",  # 输入框空状态提示文字
+                    submit_btn="发送",  # 发送按钮显示文字
+                    show_label=False,  # 隐藏左上角标签
+                )
+                # 绑定"发送"事件
+                chat_input.submit(
+                    fn=chat_with_agent,  # 点击"发送"或按回车时执行的后端函数
+                    inputs=[chat_input, chatbot, history_len, temperature, max_tokens, stream, session_id],
+                    outputs=[chatbot, chat_input],  # 函数返回完整更新后的聊天历史，一次性写回 chatbot 组件。
+                    queue=True,
+                )
+                # 绑定聊天记录中“批准/拒绝”事件，queue=False 允许审批请求与正在等待的聊天请求并发执行
+                chatbot.option_select(
+                    fn=handle_approval_option,  # 点击“批准/拒绝”按钮时执行的后端函数
+                    inputs=[session_id],
+                    queue=False,
                 )
     # 知识库操作页
     with gr.Tab("📚 知识库管理", id="kb_tab"):

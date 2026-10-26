@@ -300,9 +300,9 @@ def write_file(path: str, content: str, overwrite: bool = False) -> dict:
             }
         # 保证父目录存在
         target.parent.mkdir(parents=True, exist_ok=True)
-        # 如果要覆盖已有文件，则先备份
-        if target.exists():
-            _backup_file(target)
+        # # 如果要覆盖已有文件，则先备份
+        # if target.exists():
+        #     _backup_file(target)
         # 写入文件
         if target.suffix.lower() == ".docx":
             doc = Document()
@@ -359,8 +359,8 @@ def append_paragraph(path: str, content: str) -> dict:
                 "error_type": "UnsupportedFileType",
                 "error": "append_paragraph 只支持 .docx 文件。"
             }
-        # 备份
-        _backup_file(target)
+        # # 备份
+        # _backup_file(target)
         # 读取
         doc = Document(str(target))
         # 追加
@@ -414,8 +414,8 @@ def delete_paragraph(path: str, paragraph_index: int) -> dict:
                 "error_type": "UnsupportedFileType",
                 "error": "delete_paragraph 只支持 .docx 文件。"
             }
-        # 备份
-        _backup_file(target)
+        # # 备份
+        # _backup_file(target)
         # 读取
         doc = Document(str(target))
         paragraphs = doc.paragraphs
@@ -480,8 +480,8 @@ def replace_paragraph(path: str, paragraph_index: int, new_text: str) -> dict:
                 "error_type": "UnsupportedFileType",
                 "error": "replace_paragraph 只支持 .docx 文件。"
             }
-        # 备份
-        _backup_file(target)
+        # # 备份
+        # _backup_file(target)
         # 读取
         doc = Document(str(target))
         paragraphs = doc.paragraphs
@@ -543,7 +543,7 @@ def append_text_to_paragraph(path: str, paragraph_index: int, content: str) -> d
                 "error_type": "UnsupportedFileType",
                 "error": "该工具只支持 .docx 文件。"
             }
-        _backup_file(target)
+        # _backup_file(target)
         doc = Document(str(target))
         paragraphs = doc.paragraphs
         if paragraph_index < 1 or paragraph_index > len(paragraphs):
@@ -572,6 +572,7 @@ def append_text_to_paragraph(path: str, paragraph_index: int, content: str) -> d
 def delete_file(path: str) -> dict:
     """
     删除 workspace 中的指定文件（不删除目录）。
+    调用该函数时系统会请求用户批准。
     Args：
         path: 相对于 workspace 的文件路径，不允许越界到 workspace 外。
     Returns：
@@ -609,8 +610,8 @@ def delete_file(path: str) -> dict:
                 "error_type": "PermissionError",
                 "error": str(e)
             }
-        # 删除前备份
-        _backup_file(target)
+        # # 删除前备份
+        # _backup_file(target)
         # 执行删除
         target.unlink()
         return {
@@ -636,6 +637,7 @@ def delete_file(path: str) -> dict:
 def delete_dir(path: str) -> dict:
     """
     递归删除 workspace 中的目录及其全部内容。破坏性操作，不可恢复。
+    调用该函数时系统会请求用户批准。
     Args：
         path: 相对于 workspace 的目录路径。
     Returns：
