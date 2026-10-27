@@ -36,8 +36,8 @@ chat_system_prompt = SystemMessagePromptTemplate.from_template(
 """
 )
 
-# 创建记忆提示词模板
-chat_memory = HumanMessagePromptTemplate.from_template(
+# 创建记忆消息模板
+memory_prompt = HumanMessagePromptTemplate.from_template(
     """
 <近期会话摘要>
 {conversation_summaries}
@@ -49,8 +49,8 @@ chat_memory = HumanMessagePromptTemplate.from_template(
 """
 )
 
-# 创建用户上传数据模板
-chat_user_data = HumanMessagePromptTemplate.from_template(
+# 创建文件消息模板
+uploaded_file_prompt = HumanMessagePromptTemplate.from_template(
     """
 <用户提供的文件内容>
 {files}

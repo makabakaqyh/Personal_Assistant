@@ -8,7 +8,8 @@ from langchain_core.messages import BaseMessage
 
 from config import CHAT_MODEL_NAME, API_KEY, BASE_URL
 from tools.kb_search import list_knowledge_bases, search_knowledge_base
-from chat.prompt import chat_system_prompt, chat_memory, chat_user_data, chat_user_prompt, summary_prompt
+from context.prompt import chat_system_prompt, memory_prompt, uploaded_file_prompt, chat_user_prompt, summary_prompt
+from context.context_compression import compress_context
 from memory.memory_retriever import get_history_messages, get_recent_summary, get_current_summary
 from memory.memory_manager import save_message, save_summary
 from tools.mcp_servers import all_mcp_tools
@@ -185,14 +186,13 @@ async def agent_loop(
     # 获取记忆 ==========================================================================================================
     # 历史消息列表（返回历史消息列表和最后一条消息在会话中的顺序）
     history_messages, last_seq = get_history_messages(session_id, db)
-    # 滑动历史消息窗口
-    history_messages = history_messages[-history_len:]
+    # 压缩历史消息
+    history_messages = compress_context(history_messages, history_len)
 
     # 近期会话摘要
     conversation_summaries = get_recent_summary(session_id, db)
-
-    # 记忆（返回一个消息列表）
-    memory = chat_memory.format_messages(
+    # 长期记忆（返回一个消息列表）
+    memory = memory_prompt.format_messages(
         conversation_summaries=conversation_summaries,  # 近期会话摘要
         facts=None,  # 事实
     )
@@ -201,23 +201,23 @@ async def agent_loop(
     # 系统提示词（返回一个消息列表）
     system_prompt = chat_system_prompt.format_messages()
     # 构造消息列表
-    messages = system_prompt + history_messages + memory
+    messages = system_prompt + memory + history_messages
 
     # 使用 turn_messages 收集本轮的新消息，用于更新本轮会话摘要
     turn_messages = []
     # 如果用户上传文件
     if files:
         # 用户上传的文件（返回一个消息列表）
-        user_data = chat_user_data.format_messages(
+        user_file = uploaded_file_prompt.format_messages(
             files=_format_files(files)
         )
         # 把用户上传的文件入库
-        save_message(user_data[0], session_id, last_seq + 1, db)
+        save_message(user_file[0], session_id, last_seq + 1, db)
         last_seq += 1
         # 加入消息列表
-        messages.append(user_data[0])
+        messages.append(user_file[0])
         # 收集进本轮消息
-        turn_messages.append(user_data[0])
+        turn_messages.append(user_file[0])
 
     # 用户提示词（返回一个消息列表）
     user_prompt = chat_user_prompt.format_messages(

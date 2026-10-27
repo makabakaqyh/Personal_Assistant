@@ -28,7 +28,7 @@ with gr.Blocks(fill_width=True, fill_height=True) as demo:
         with gr.Row():
             # 创建垂直布局容器
             with gr.Column(scale=1, variant="panel") as sidebar_left:
-                history_len = gr.Slider(minimum=0, maximum=100, value=50, label="保留最近历史消息的数量")
+                history_len = gr.Slider(minimum=20, maximum=100, value=40, step=20, label="上下文中保留历史消息的数量")
                 temperature = gr.Slider(minimum=0.0, maximum=1.0, value=0.5, step=0.1, label="temperature")
                 max_tokens = gr.Slider(minimum=1000, maximum=50000, value=10000, step=1000, label="最大输出长度（Token）")
                 stream = gr.Checkbox(label="stream", value=True)
